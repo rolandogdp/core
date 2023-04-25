@@ -7,6 +7,11 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.components.bluetooth import (
+    BluetoothServiceInfoBleak,
+    async_discovered_service_info,
+)
+from homeassistant.const import CONF_ADDRESS, CONF_FRIENDLY_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
@@ -18,8 +23,8 @@ _LOGGER = logging.getLogger(__name__)
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
-        vol.Required("name"): str,
-        vol.Required("mac"): str,
+        vol.Required(CONF_FRIENDLY_NAME): str,
+        vol.Required(CONF_ADDRESS): str,
     }
 )
 
@@ -39,7 +44,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     hub = PhilipsSmartPlug(data["mac"], data["name"])
 
     if not await hub.pair():
-        raise InvalidAuth
+        raise CannotConnect
 
     # If you cannot connect:
     # throw CannotConnect
@@ -55,29 +60,69 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    def __init__(self) -> None:
+        """:Init config flow."""
+        self._discovery_info: BluetoothServiceInfoBleak | None = None
+        self._discovered_devices: dict[str, str] = {}
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle the initial step."""
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            address = user_input["mac"]
-            await self.async_set_unique_id(address, raise_on_progress=False)
 
-            try:
-                info = await validate_input(self.hass, user_input)
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except InvalidAuth:
-                errors["base"] = "invalid_auth"
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-            else:
-                return self.async_create_entry(title=info["title"], data=user_input)
+        if user_input is not None:
+            address = user_input[CONF_ADDRESS]
+            await self.async_set_unique_id(address, raise_on_progress=False)
+            self._abort_if_unique_id_configured()
+            return self.async_create_entry(
+                title=self._discovered_devices[address], data={}
+            )
+
+        current_addresses = self._async_current_ids()
+        for discovery_info in async_discovered_service_info(self.hass, False):
+            address = discovery_info.address
+            if address in current_addresses or address in self._discovered_devices:
+                continue
+
+            self._discovered_devices[address] = discovery_info.name
+
+        if not self._discovered_devices:
+            return self.async_abort(reason="no_devices_found")
 
         return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+            step_id="user",
+            data_schema=vol.Schema(
+                {vol.Required(CONF_ADDRESS): vol.In(self._discovered_devices)}
+            ),
+        )
+
+    async def async_step_bluetooth(
+        self, discovery_info: BluetoothServiceInfoBleak
+    ) -> FlowResult:
+        """Save discovered device, forward for confirmation."""
+        await self.async_set_unique_id(discovery_info.address)
+        self._abort_if_unique_id_configured()
+        self._discovery_info = discovery_info
+
+        return await self.async_step_bluetooth_confirm()
+
+    async def async_step_bluetooth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Validate by the user the discovered device."""
+        assert self._discovery_info is not None
+        name = self._discovery_info.name
+        if user_input is not None:
+            return self.async_create_entry(title=name, data={})
+
+        self._set_confirm_only()
+        self.context["title_placeholders"] = {
+            "name": name,
+            "model": self._discovery_info.address,
+        }
+        return self.async_show_form(
+            step_id="bluetooth_confirm",
+            description_placeholders=self.context["title_placeholders"],
         )
 
 

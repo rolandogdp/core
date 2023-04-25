@@ -3,6 +3,7 @@ import logging
 import typing
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
@@ -10,24 +11,6 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from .philips_plug import PhilipsHuePlug
 
 _LOGGER = logging.getLogger(__name__)
-
-
-# async def async_setup_entry(
-#     hass: HomeAssistant,
-#     entry: config_entries.ConfigEntry,
-#     async_add_entities: AddEntitiesCallback,
-# ) -> None:
-#     """Set up the RAPT Pill BLE sensors."""
-#     coordinator: PassiveBluetoothProcessorCoordinator = hass.data[DOMAIN][
-#         entry.entry_id
-#     ]
-#     processor = PassiveBluetoothDataProcessor(sensor_update_to_bluetooth_data_update)
-#     entry.async_on_unload(
-#         processor.async_add_entities_listener(
-#             RAPTPillBluetoothSensorEntity, async_add_entities
-#         )
-#     )
-#     entry.async_on_unload(coordinator.async_register_processor(processor))
 
 
 def setup_platform(
@@ -39,7 +22,7 @@ def setup_platform(
     """Set up the Awesome Light platform."""
     # Assign configuration variables.
     # The configuration check takes care they are present.
-    mac = config["mac"]
+    mac = config[CONF_ADDRESS] or config["unique_id"]
 
     # # Setup connection with devices/cloud
     # hub = awesomelights.Hub(host, username, password)
