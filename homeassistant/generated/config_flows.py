@@ -319,6 +319,7 @@ FLOWS = {
         "p1_monitor",
         "panasonic_viera",
         "peco",
+        "philips_hue",
         "philips_js",
         "pi_hole",
         "picnic",

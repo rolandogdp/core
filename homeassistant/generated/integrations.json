@@ -4102,6 +4102,12 @@
         }
       }
     },
+    "philips_hue": {
+      "name": "Philips Hue Smart Plug Bluetooth",
+      "integration_type": "hub",
+      "config_flow": true,
+      "iot_class": "local_push"
+    },
     "pi_hole": {
       "name": "Pi-hole",
       "integration_type": "hub",

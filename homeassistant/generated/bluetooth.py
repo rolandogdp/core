@@ -313,6 +313,10 @@ BLUETOOTH: list[dict[str, bool | str | int | list[int]]] = [
         "manufacturer_id": 220,
     },
     {
+        "domain": "philips_hue",
+        "service_data_uuid": "932c32bd-0000-47a2-835a-a8d455b859dd",
+    },
+    {
         "connectable": False,
         "domain": "qingping",
         "local_name": "Qingping*",
