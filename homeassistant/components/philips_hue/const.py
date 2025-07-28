@@ -1,4 +1,4 @@
-"""Constants for the bluetooth plug integration."""
+"""Constants for the Philips Hue Bluetooth integration."""
 
 DOMAIN = "philips_hue"
 PLUG_SERVICE = "932c32bd-0000-47a2-835a-a8d455b859dd"

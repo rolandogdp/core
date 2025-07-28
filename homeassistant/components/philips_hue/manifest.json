@@ -3,17 +3,15 @@
   "name": "Philips Hue Smart Plug Bluetooth",
   "bluetooth": [
     {
-      "service_data_uuid": "932c32bd-0000-47a2-835a-a8d455b859dd"
+      "service_uuid": "932c32bd-0000-47a2-835a-a8d455b859dd",
+      "connectable": true
     }
   ],
   "codeowners": ["@rolandogdp"],
   "config_flow": true,
   "dependencies": ["bluetooth_adapters"],
   "documentation": "https://www.home-assistant.io/integrations/philips_hue",
-  "homekit": {},
   "integration_type": "device",
-  "iot_class": "local_push",
-  "requirements": ["bleak==0.20.2"],
-  "ssdp": [],
-  "zeroconf": []
+  "iot_class": "local_polling",
+  "requirements": ["bleak==0.20.2"]
 }
