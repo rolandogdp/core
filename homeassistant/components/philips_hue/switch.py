@@ -1,80 +1,57 @@
-"""File for the Philips Hue Bluetooth Plug Switch High level interface."""
+"""Switch platform for Philips Hue Bluetooth devices."""
+
+from __future__ import annotations
+
 import logging
-import typing
+from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .philips_plug import PhilipsHuePlug
+from .coordinator import PhilipsHueConfigEntry, PhilipsHueCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: ConfigType,
-    add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
+    entry: PhilipsHueConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Awesome Light platform."""
-    # Assign configuration variables.
-    # The configuration check takes care they are present.
-    mac = config[CONF_ADDRESS] or config["unique_id"]
-
-    # # Setup connection with devices/cloud
-    # hub = awesomelights.Hub(host, username, password)
-
-    # # Verify that passed in configuration works
-    # if not hub.is_valid_login():
-    #     _LOGGER.error("Could not connect to AwesomeLight hub")
-    #     return
-
-    # Add devices
-    add_entities([PhilipsSmartPlug(mac)])
+    """Set up Philips Hue Bluetooth switch based on a config entry."""
+    coordinator = entry.runtime_data
+    async_add_entities([PhilipsHueSwitchEntity(coordinator, entry)])
 
 
-class PhilipsSmartPlug(SwitchEntity):
-    """Philips Hue Bluetooth Plug High level interface."""
+class PhilipsHueSwitchEntity(CoordinatorEntity[PhilipsHueCoordinator], SwitchEntity):
+    """Representation of a Philips Hue Bluetooth smart plug."""
 
     _attr_has_entity_name = True
+    _attr_name = None
 
-    def __init__(self, mac, name="Default Name") -> None:
-        """Init function."""
-        self._is_on = False
-        self._mac = mac
-        self._name = name
-        # self._attr_device_info = ...  # For automatic device registration
-        # self._attr_unique_id = ...
-        self._device: PhilipsHuePlug = PhilipsHuePlug(mac, name=name)
+    def __init__(
+        self,
+        coordinator: PhilipsHueCoordinator,
+        entry: PhilipsHueConfigEntry,
+    ) -> None:
+        """Initialize the switch."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.unique_id}_switch"
+        self._attr_device_info = coordinator.device_info
 
     @property
-    def is_on(self) -> bool:
-        """If the switch is currently on or off."""
-        return self._is_on
+    def is_on(self) -> bool | None:
+        """Return True if entity is on."""
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.get("switch")
 
-    async def async_turn_on(self, **kwargs: typing.Any) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
-        self._device.turn_on()
+        await self.coordinator.async_turn_on()
 
-    async def async_turn_off(self, **kwargs: typing.Any) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
-        self._device.turn_off()
-
-    async def async_toggle(self, **kwargs: typing.Any) -> None:
-        """Toggle the entity."""
-        if self._is_on:
-            await self.async_turn_off()
-        elif not self._is_on:
-            await self.async_turn_on()
-
-    async def async_update(self) -> None:
-        """Fetch data."""
-        self._is_on = await self._device.get_status()
-
-    async def pair(self):
-        """Pairs to the device."""
-        await self._device.pair()
-        return True
+        await self.coordinator.async_turn_off()

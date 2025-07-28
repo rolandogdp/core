@@ -1,134 +1,141 @@
-"""Config flow for bluetooth plug integration."""
+"""Config flow for Philips Hue Bluetooth integration."""
+
 from __future__ import annotations
 
 import logging
 from typing import Any
 
+from bleak import BleakClient
 import voluptuous as vol
 
-from homeassistant import config_entries
+from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import (
-    BluetoothServiceInfoBleak,
+    BluetoothServiceInfo,
     async_discovered_service_info,
 )
-from homeassistant.const import CONF_ADDRESS, CONF_FRIENDLY_NAME
-from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResult
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.const import CONF_ADDRESS
+from homeassistant.data_entry_flow import AbortFlow
 
-from .const import DOMAIN
-from .switch import PhilipsSmartPlug
+from .const import DOMAIN, PLUG_SERVICE
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_FRIENDLY_NAME): str,
-        vol.Required(CONF_ADDRESS): str,
-    }
-)
+
+def _is_supported(discovery_info: BluetoothServiceInfo) -> bool:
+    """Check if device is supported."""
+    return PLUG_SERVICE in discovery_info.service_uuids
 
 
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input allows us to connect.
-
-    Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
-    """
-
-    # If your PyPI package is not built with async, pass your methods
-    # to the executor:
-    # await hass.async_add_executor_job(
-    #     your_validate_func, data["username"], data["password"]
-    # )
-
-    hub = PhilipsSmartPlug(data["mac"], data["name"])
-
-    if not await hub.pair():
-        raise CannotConnect
-
-    # If you cannot connect:
-    # throw CannotConnect
-    # If the authentication is wrong:
-    # InvalidAuth
-
-    # Return info that you want to store in the config entry.
-    return {"title": "Name of the device"}
+def _get_name(discovery_info: BluetoothServiceInfo) -> str:
+    """Get device name from discovery info."""
+    return discovery_info.name or "Philips Hue Smart Plug"
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for bluetooth plug."""
+class PhilipsHueConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Philips Hue Bluetooth."""
 
     VERSION = 1
 
     def __init__(self) -> None:
-        """:Init config flow."""
-        self._discovery_info: BluetoothServiceInfoBleak | None = None
-        self._discovered_devices: dict[str, str] = {}
+        """Initialize the config flow."""
+        self.devices: dict[str, str] = {}
+        self.address: str | None = None
+
+    async def async_test_connection(self, address: str) -> None:
+        """Try to connect to device and test communication."""
+        device = bluetooth.async_ble_device_from_address(
+            self.hass, address, connectable=True
+        )
+        if not device:
+            raise AbortFlow("cannot_connect")
+
+        client = BleakClient(device)
+        try:
+            await client.connect()
+            # Try to read a characteristic to verify the device works
+            services = await client.get_services()
+            supported = any(str(service.uuid) == PLUG_SERVICE for service in services)
+        except Exception as exception:
+            _LOGGER.debug("Failed to connect to device %s: %s", address, exception)
+            raise AbortFlow("cannot_connect") from exception
+        finally:
+            if client.is_connected:
+                await client.disconnect()
+
+        if not supported:
+            raise AbortFlow("unsupported_device")
+
+    async def async_step_bluetooth(
+        self, discovery_info: BluetoothServiceInfo
+    ) -> ConfigFlowResult:
+        """Handle the bluetooth discovery step."""
+        _LOGGER.debug("Discovered device: %s", discovery_info)
+        if not _is_supported(discovery_info):
+            return self.async_abort(reason="not_supported")
+
+        self.address = discovery_info.address
+        self.devices = {discovery_info.address: _get_name(discovery_info)}
+        await self.async_set_unique_id(self.address)
+        self._abort_if_unique_id_configured()
+        return await self.async_step_confirm()
+
+    async def async_step_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm discovery."""
+        assert self.address
+        title = self.devices[self.address]
+
+        if user_input is not None:
+            try:
+                await self.async_test_connection(self.address)
+                return self.async_create_entry(
+                    title=title, data={CONF_ADDRESS: self.address}
+                )
+            except AbortFlow:
+                return self.async_abort(reason="cannot_connect")
+
+        self.context["title_placeholders"] = {"name": title}
+        self._set_confirm_only()
+        return self.async_show_form(
+            step_id="confirm",
+            description_placeholders=self.context["title_placeholders"],
+        )
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial step."""
-
         if user_input is not None:
-            address = user_input[CONF_ADDRESS]
-            await self.async_set_unique_id(address, raise_on_progress=False)
+            self.address = user_input[CONF_ADDRESS]
+            await self.async_set_unique_id(self.address, raise_on_progress=False)
             self._abort_if_unique_id_configured()
-            return self.async_create_entry(
-                title=self._discovered_devices[address], data={}
-            )
+            try:
+                await self.async_test_connection(self.address)
+                return self.async_create_entry(
+                    title=self.devices.get(self.address, "Philips Hue Smart Plug"),
+                    data={CONF_ADDRESS: self.address},
+                )
+            except AbortFlow:
+                return self.async_abort(reason="cannot_connect")
 
         current_addresses = self._async_current_ids()
-        for discovery_info in async_discovered_service_info(self.hass, False):
+        for discovery_info in async_discovered_service_info(self.hass):
             address = discovery_info.address
-            if address in current_addresses or address in self._discovered_devices:
+            if address in current_addresses or not _is_supported(discovery_info):
                 continue
 
-            self._discovered_devices[address] = discovery_info.name
+            self.devices[address] = _get_name(discovery_info)
 
-        if not self._discovered_devices:
+        if not self.devices:
             return self.async_abort(reason="no_devices_found")
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
-                {vol.Required(CONF_ADDRESS): vol.In(self._discovered_devices)}
+                {
+                    vol.Required(CONF_ADDRESS): vol.In(self.devices),
+                },
             ),
         )
-
-    async def async_step_bluetooth(
-        self, discovery_info: BluetoothServiceInfoBleak
-    ) -> FlowResult:
-        """Save discovered device, forward for confirmation."""
-        await self.async_set_unique_id(discovery_info.address)
-        self._abort_if_unique_id_configured()
-        self._discovery_info = discovery_info
-
-        return await self.async_step_bluetooth_confirm()
-
-    async def async_step_bluetooth_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Validate by the user the discovered device."""
-        assert self._discovery_info is not None
-        name = self._discovery_info.name
-        if user_input is not None:
-            return self.async_create_entry(title=name, data={})
-
-        self._set_confirm_only()
-        self.context["title_placeholders"] = {
-            "name": name,
-            "model": self._discovery_info.address,
-        }
-        return self.async_show_form(
-            step_id="bluetooth_confirm",
-            description_placeholders=self.context["title_placeholders"],
-        )
-
-
-class CannotConnect(HomeAssistantError):
-    """Error to indicate we cannot connect."""
-
-
-class InvalidAuth(HomeAssistantError):
-    """Error to indicate there is invalid auth."""
