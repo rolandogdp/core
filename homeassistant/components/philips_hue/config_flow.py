@@ -6,9 +6,9 @@ import logging
 from typing import Any
 
 from bleak import BleakClient
-from bleak.backends.device import BLEDevice
 import voluptuous as vol
 
+from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfo,
     async_discovered_service_info,
@@ -44,8 +44,6 @@ class PhilipsHueConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_test_connection(self, address: str) -> None:
         """Try to connect to device and test communication."""
-        from homeassistant.components import bluetooth
-
         device = bluetooth.async_ble_device_from_address(
             self.hass, address, connectable=True
         )
@@ -57,14 +55,16 @@ class PhilipsHueConfigFlow(ConfigFlow, domain=DOMAIN):
             await client.connect()
             # Try to read a characteristic to verify the device works
             services = await client.get_services()
-            if not any(str(service.uuid) == PLUG_SERVICE for service in services):
-                raise AbortFlow("unsupported_device")
+            supported = any(str(service.uuid) == PLUG_SERVICE for service in services)
         except Exception as exception:
             _LOGGER.debug("Failed to connect to device %s: %s", address, exception)
             raise AbortFlow("cannot_connect") from exception
         finally:
             if client.is_connected:
                 await client.disconnect()
+
+        if not supported:
+            raise AbortFlow("unsupported_device")
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfo

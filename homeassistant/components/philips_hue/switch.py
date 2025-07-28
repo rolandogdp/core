@@ -10,7 +10,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
 from .coordinator import PhilipsHueConfigEntry, PhilipsHueCoordinator
 
 _LOGGER = logging.getLogger(__name__)

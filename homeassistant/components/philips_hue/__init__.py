@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 
-from bleak.backends.device import BLEDevice
-
 from homeassistant.components import bluetooth
 from homeassistant.const import CONF_ADDRESS, Platform
 from homeassistant.core import HomeAssistant
@@ -39,9 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: PhilipsHueConfigEntry) -
         model="Hue Smart Plug",
     )
 
-    coordinator = PhilipsHueCoordinator(
-        hass, entry, LOGGER, device_info, address
-    )
+    coordinator = PhilipsHueCoordinator(hass, entry, LOGGER, device_info, address)
 
     try:
         await coordinator.async_config_entry_first_refresh()

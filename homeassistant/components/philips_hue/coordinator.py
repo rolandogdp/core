@@ -11,11 +11,11 @@ from bleak.backends.device import BLEDevice
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN, PLUG_STATE
+from .const import PLUG_STATE
 
 SCAN_INTERVAL = timedelta(seconds=30)
 LOGGER = logging.getLogger(__name__)
@@ -81,7 +81,6 @@ class PhilipsHueCoordinator(DataUpdateCoordinator[dict[str, bool]]):
             client = await self._get_client()
             status_bytes = await client.read_gatt_char(PLUG_STATE)
             is_on = status_bytes == b"\x01"
-            return {"switch": is_on}
         except Exception as exception:
             if self._client and self._client.is_connected:
                 await self._client.disconnect()
@@ -89,6 +88,8 @@ class PhilipsHueCoordinator(DataUpdateCoordinator[dict[str, bool]]):
             raise UpdateFailed(
                 f"Unable to update data for {self.address} due to {exception}"
             ) from exception
+        else:
+            return {"switch": is_on}
 
     async def async_turn_on(self) -> None:
         """Turn the device on."""
