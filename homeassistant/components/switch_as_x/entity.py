@@ -1,8 +1,10 @@
 """Base entity for the Switch as X integration."""
+
 from __future__ import annotations
 
 from typing import Any
 
+from homeassistant.components.homeassistant import exposed_entities
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -11,12 +13,12 @@ from homeassistant.const import (
     STATE_ON,
     STATE_UNAVAILABLE,
 )
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
-from homeassistant.helpers.entity import DeviceInfo, Entity, ToggleEntity
+from homeassistant.helpers.entity import Entity, ToggleEntity
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import DOMAIN as SWITCH_AS_X_DOMAIN
+from .const import DOMAIN
 
 
 class BaseEntity(Entity):
@@ -45,12 +47,8 @@ class BaseEntity(Entity):
         if wrapped_switch:
             name = wrapped_switch.original_name
 
-        self._device_id = device_id
         if device_id and (device := device_registry.async_get(device_id)):
-            self._attr_device_info = DeviceInfo(
-                connections=device.connections,
-                identifiers=device.identifiers,
-            )
+            self.device_entry = device
         self._attr_entity_category = entity_category
         self._attr_has_entity_name = has_entity_name
         self._attr_name = name
@@ -58,11 +56,13 @@ class BaseEntity(Entity):
         self._switch_entity_id = switch_entity_id
 
         self._is_new_entity = (
-            registry.async_get_entity_id(domain, SWITCH_AS_X_DOMAIN, unique_id) is None
+            registry.async_get_entity_id(domain, DOMAIN, unique_id) is None
         )
 
     @callback
-    def async_state_changed_listener(self, event: Event | None = None) -> None:
+    def async_state_changed_listener(
+        self, event: Event[EventStateChangedData] | None = None
+    ) -> None:
         """Handle child updates."""
         if (
             state := self.hass.states.get(self._switch_entity_id)
@@ -76,7 +76,9 @@ class BaseEntity(Entity):
         """Register callbacks and copy the wrapped entity's custom name if set."""
 
         @callback
-        def _async_state_changed_listener(event: Event | None = None) -> None:
+        def _async_state_changed_listener(
+            event: Event[EventStateChangedData] | None = None,
+        ) -> None:
             """Handle child updates."""
             self.async_state_changed_listener(event)
             self.async_write_ha_state()
@@ -95,18 +97,46 @@ class BaseEntity(Entity):
         if registry.async_get(self.entity_id) is not None:
             registry.async_update_entity_options(
                 self.entity_id,
-                SWITCH_AS_X_DOMAIN,
-                {"entity_id": self._switch_entity_id},
+                DOMAIN,
+                self.async_generate_entity_options(),
             )
 
-        if not self._is_new_entity:
+        if not self._is_new_entity or not (
+            wrapped_switch := registry.async_get(self._switch_entity_id)
+        ):
             return
 
-        wrapped_switch = registry.async_get(self._switch_entity_id)
-        if not wrapped_switch or wrapped_switch.name is None:
-            return
+        def copy_custom_name(wrapped_switch: er.RegistryEntry) -> None:
+            """Copy the name set by user from the wrapped entity."""
+            if wrapped_switch.name is None:
+                return
+            registry.async_update_entity(self.entity_id, name=wrapped_switch.name)
 
-        registry.async_update_entity(self.entity_id, name=wrapped_switch.name)
+        def copy_expose_settings() -> None:
+            """Copy assistant expose settings from the wrapped entity.
+
+            Also unexpose the wrapped entity if exposed.
+            """
+            expose_settings = exposed_entities.async_get_entity_settings(
+                self.hass, self._switch_entity_id
+            )
+            for assistant, settings in expose_settings.items():
+                if (should_expose := settings.get("should_expose")) is None:
+                    continue
+                exposed_entities.async_expose_entity(
+                    self.hass, assistant, self.entity_id, should_expose
+                )
+                exposed_entities.async_expose_entity(
+                    self.hass, assistant, self._switch_entity_id, False
+                )
+
+        copy_custom_name(wrapped_switch)
+        copy_expose_settings()
+
+    @callback
+    def async_generate_entity_options(self) -> dict[str, Any]:
+        """Generate entity options."""
+        return {"entity_id": self._switch_entity_id, "invert": False}
 
 
 class BaseToggleEntity(BaseEntity, ToggleEntity):
@@ -133,7 +163,9 @@ class BaseToggleEntity(BaseEntity, ToggleEntity):
         )
 
     @callback
-    def async_state_changed_listener(self, event: Event | None = None) -> None:
+    def async_state_changed_listener(
+        self, event: Event[EventStateChangedData] | None = None
+    ) -> None:
         """Handle child updates."""
         super().async_state_changed_listener(event)
         if (
@@ -143,3 +175,25 @@ class BaseToggleEntity(BaseEntity, ToggleEntity):
             return
 
         self._attr_is_on = state.state == STATE_ON
+
+
+class BaseInvertableEntity(BaseEntity):
+    """Represents a Switch as an X."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry_title: str,
+        domain: str,
+        invert: bool,
+        switch_entity_id: str,
+        unique_id: str,
+    ) -> None:
+        """Initialize Switch as an X."""
+        super().__init__(hass, config_entry_title, domain, switch_entity_id, unique_id)
+        self._invert_state = invert
+
+    @callback
+    def async_generate_entity_options(self) -> dict[str, Any]:
+        """Generate entity options."""
+        return super().async_generate_entity_options() | {"invert": self._invert_state}

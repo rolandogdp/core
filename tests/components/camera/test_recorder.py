@@ -1,7 +1,10 @@
 """The tests for camera recorder."""
+
 from __future__ import annotations
 
 from datetime import timedelta
+
+import pytest
 
 from homeassistant.components import camera
 from homeassistant.components.recorder import Recorder
@@ -20,9 +23,15 @@ from tests.common import async_fire_time_changed
 from tests.components.recorder.common import async_wait_recording_done
 
 
+@pytest.fixture(autouse=True)
+async def setup_homeassistant():
+    """Override the fixture in calendar.conftest."""
+
+
 async def test_exclude_attributes(recorder_mock: Recorder, hass: HomeAssistant) -> None:
     """Test camera registered attributes to be excluded."""
     now = dt_util.utcnow()
+    await async_setup_component(hass, "homeassistant", {})
     await async_setup_component(
         hass, camera.DOMAIN, {camera.DOMAIN: {"platform": "demo"}}
     )

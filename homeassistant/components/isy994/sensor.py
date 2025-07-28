@@ -1,4 +1,5 @@
 """Support for ISY sensors."""
+
 from __future__ import annotations
 
 from typing import Any, cast
@@ -22,30 +23,28 @@ from pyisy.constants import (
 )
 from pyisy.helpers import EventListener, NodeProperty
 from pyisy.nodes import Node, NodeChangedEvent
-from pyisy.variables import Variable
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, Platform, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
     _LOGGER,
-    DOMAIN,
     UOM_DOUBLE_TEMP,
     UOM_FRIENDLY_NAME,
     UOM_INDEX,
     UOM_ON_OFF,
     UOM_TO_STATES,
 )
-from .entity import ISYEntity, ISYNodeEntity
+from .entity import ISYNodeEntity
 from .helpers import convert_isy_value_to_hass
+from .models import IsyConfigEntry
 
 # Disable general purpose and redundant sensors by default
 AUX_DISABLED_BY_DEFAULT_MATCH = ["GV", "DO"]
@@ -72,7 +71,7 @@ ISY_CONTROL_TO_DEVICE_CLASS = {
     "CV": SensorDeviceClass.VOLTAGE,
     "DEWPT": SensorDeviceClass.TEMPERATURE,
     "DISTANC": SensorDeviceClass.DISTANCE,
-    "ETO": SensorDeviceClass.PRECIPITATION_INTENSITY,
+    "ETO": SensorDeviceClass.PRECIPITATION_INTENSITY,  # codespell:ignore eto
     "FATM": SensorDeviceClass.WEIGHT,
     "FREQ": SensorDeviceClass.FREQUENCY,
     "MUSCLEM": SensorDeviceClass.WEIGHT,
@@ -96,23 +95,25 @@ ISY_CONTROL_TO_DEVICE_CLASS = {
     "WEIGHT": SensorDeviceClass.WEIGHT,
     "WINDCH": SensorDeviceClass.TEMPERATURE,
 }
-ISY_CONTROL_TO_STATE_CLASS = {
-    control: SensorStateClass.MEASUREMENT for control in ISY_CONTROL_TO_DEVICE_CLASS
-}
+ISY_CONTROL_TO_STATE_CLASS = dict.fromkeys(
+    ISY_CONTROL_TO_DEVICE_CLASS, SensorStateClass.MEASUREMENT
+)
 ISY_CONTROL_TO_ENTITY_CATEGORY = {
-    PROP_RAMP_RATE: EntityCategory.CONFIG,
-    PROP_ON_LEVEL: EntityCategory.CONFIG,
+    PROP_RAMP_RATE: EntityCategory.DIAGNOSTIC,
+    PROP_ON_LEVEL: EntityCategory.DIAGNOSTIC,
     PROP_COMMS_ERROR: EntityCategory.DIAGNOSTIC,
 }
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: IsyConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the ISY sensor platform."""
-    isy_data = hass.data[DOMAIN][entry.entry_id]
-    entities: list[ISYSensorEntity | ISYSensorVariableEntity] = []
-    devices: dict[str, DeviceInfo] = isy_data.devices
+    isy_data = entry.runtime_data
+    entities: list[ISYSensorEntity] = []
+    devices = isy_data.devices
 
     for node in isy_data.nodes[Platform.SENSOR]:
         _LOGGER.debug("Loading %s", node.name)
@@ -133,9 +134,6 @@ async def async_setup_entry(
                 device_info=devices.get(node.primary_node),
             )
         )
-
-    for variable in isy_data.variables[Platform.SENSOR]:
-        entities.append(ISYSensorVariableEntity(variable))
 
     async_add_entities(entities)
 
@@ -189,7 +187,7 @@ class ISYSensorEntity(ISYNodeEntity, SensorEntity):
 
         # Check if this is a known index pair UOM
         if isinstance(uom, dict):
-            return uom.get(value, value)
+            return uom.get(value, value)  # type: ignore[no-any-return]
 
         if uom in (UOM_INDEX, UOM_ON_OFF):
             return cast(str, self.target.formatted)
@@ -200,13 +198,12 @@ class ISYSensorEntity(ISYNodeEntity, SensorEntity):
 
         # Handle ISY precision and rounding
         value = convert_isy_value_to_hass(value, uom, self.target.prec)
+        if value is None:
+            return None
 
         # Convert temperatures to Home Assistant's unit
         if uom in (UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT):
             value = self.hass.config.units.temperature(value, uom)
-
-        if value is None:
-            return None
 
         assert isinstance(value, (int, float))
         return value
@@ -265,6 +262,7 @@ class ISYAuxSensorEntity(ISYSensorEntity):
         """Return the target value."""
         return None if self.target is None else self.target.value
 
+    # pylint: disable-next=hass-missing-super-call
     async def async_added_to_hass(self) -> None:
         """Subscribe to the node control change events.
 
@@ -292,35 +290,3 @@ class ISYAuxSensorEntity(ISYSensorEntity):
     def available(self) -> bool:
         """Return entity availability."""
         return cast(bool, self._node.enabled)
-
-
-class ISYSensorVariableEntity(ISYEntity, SensorEntity):
-    """Representation of an ISY variable as a sensor device."""
-
-    # Deprecated sensors, will be removed in 2023.5.0
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, variable_node: Variable) -> None:
-        """Initialize the ISY binary sensor program."""
-        super().__init__(variable_node)
-        self._name = variable_node.name
-
-    @property
-    def native_value(self) -> float | int | None:
-        """Return the state of the variable."""
-        return convert_isy_value_to_hass(self._node.status, "", self._node.prec)
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Get the state attributes for the device."""
-        return {
-            "init_value": convert_isy_value_to_hass(
-                self._node.init, "", self._node.prec
-            ),
-            "last_edited": self._node.last_edited,
-        }
-
-    @property
-    def icon(self) -> str:
-        """Return the icon."""
-        return "mdi:counter"

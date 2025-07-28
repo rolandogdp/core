@@ -1,5 +1,6 @@
 """Fixtures for the Android TV Remote integration tests."""
-from collections.abc import Generator
+
+from collections.abc import Callable, Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,7 +12,7 @@ from tests.common import MockConfigEntry
 
 
 @pytest.fixture
-def mock_setup_entry() -> Generator[AsyncMock, None, None]:
+def mock_setup_entry() -> Generator[AsyncMock]:
     """Mock setting up a config entry."""
     with patch(
         "homeassistant.components.androidtv_remote.async_setup_entry",
@@ -21,7 +22,7 @@ def mock_setup_entry() -> Generator[AsyncMock, None, None]:
 
 
 @pytest.fixture
-def mock_unload_entry() -> Generator[AsyncMock, None, None]:
+def mock_unload_entry() -> Generator[AsyncMock]:
     """Mock unloading a config entry."""
     with patch(
         "homeassistant.components.androidtv_remote.async_unload_entry",
@@ -31,7 +32,7 @@ def mock_unload_entry() -> Generator[AsyncMock, None, None]:
 
 
 @pytest.fixture
-def mock_api() -> Generator[None, MagicMock, None]:
+def mock_api() -> Generator[MagicMock]:
     """Return a mocked AndroidTVRemote."""
     with patch(
         "homeassistant.components.androidtv_remote.helpers.AndroidTVRemote",
@@ -42,6 +43,57 @@ def mock_api() -> Generator[None, MagicMock, None]:
             "manufacturer": "My Android TV manufacturer",
             "model": "My Android TV model",
         }
+
+        is_on_updated_callbacks: list[Callable] = []
+        current_app_updated_callbacks: list[Callable] = []
+        volume_info_updated_callbacks: list[Callable] = []
+        is_available_updated_callbacks: list[Callable] = []
+
+        def mocked_add_is_on_updated_callback(callback: Callable):
+            is_on_updated_callbacks.append(callback)
+
+        def mocked_add_current_app_updated_callback(callback: Callable):
+            current_app_updated_callbacks.append(callback)
+
+        def mocked_add_volume_info_updated_callback(callback: Callable):
+            volume_info_updated_callbacks.append(callback)
+
+        def mocked_add_is_available_updated_callbacks(callback: Callable):
+            is_available_updated_callbacks.append(callback)
+
+        def mocked_is_on_updated(is_on: bool):
+            for callback in is_on_updated_callbacks:
+                callback(is_on)
+
+        def mocked_current_app_updated(current_app: str):
+            for callback in current_app_updated_callbacks:
+                callback(current_app)
+
+        def mocked_volume_info_updated(volume_info: dict[str, str | bool]):
+            for callback in volume_info_updated_callbacks:
+                callback(volume_info)
+
+        def mocked_is_available_updated(is_available: bool):
+            for callback in is_available_updated_callbacks:
+                callback(is_available)
+
+        mock_api.add_is_on_updated_callback.side_effect = (
+            mocked_add_is_on_updated_callback
+        )
+        mock_api.add_current_app_updated_callback.side_effect = (
+            mocked_add_current_app_updated_callback
+        )
+        mock_api.add_volume_info_updated_callback.side_effect = (
+            mocked_add_volume_info_updated_callback
+        )
+        mock_api.add_is_available_updated_callback.side_effect = (
+            mocked_add_is_available_updated_callbacks
+        )
+        mock_api._on_is_on_updated.side_effect = mocked_is_on_updated
+        mock_api._on_current_app_updated.side_effect = mocked_current_app_updated
+        mock_api._on_volume_info_updated.side_effect = mocked_volume_info_updated
+        mock_api._on_is_available_updated.side_effect = mocked_is_available_updated
+
         yield mock_api
 
 
