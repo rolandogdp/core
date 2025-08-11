@@ -1,4 +1,5 @@
 """File for the Interface Class for the Philips Hue Bluetooth Power Plug."""
+
 import logging
 
 from bleak import BleakClient, BleakScanner
@@ -23,7 +24,7 @@ class PhilipsHuePlug:
         self._mac = mac
         self._name = name
         self.bleak_client = BleakClient(self._mac)
-        self._paired = None
+        self._paired = False
 
     def update_bleak_client(self, bleak_client: BleakClient):
         """Replace/update the bleakClient."""
@@ -35,8 +36,8 @@ class PhilipsHuePlug:
 
     async def pair(self):
         """Use the bleakClient to pair to the device."""
-        paired = await self.bleak_client.pair(protection_level=2)
-        if not paired:
+        self._paired = await self.bleak_client.pair(protection_level=2)
+        if not self._paired:
             raise ConnectionError
 
     async def turn_on(self):

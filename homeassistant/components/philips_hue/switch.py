@@ -1,13 +1,16 @@
 """File for the Philips Hue Bluetooth Plug Switch High level interface."""
+
 import logging
 import typing
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
+from .const import DOMAIN
 from .philips_plug import PhilipsHuePlug
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,9 +48,14 @@ class PhilipsSmartPlug(SwitchEntity):
         """Init function."""
         self._is_on = False
         self._mac = mac
-        self._name = name
-        # self._attr_device_info = ...  # For automatic device registration
-        # self._attr_unique_id = ...
+        self._attr_name = name
+        self._attr_unique_id = mac
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, mac)},
+            manufacturer="Philips",
+            model="Hue Smart Plug (Bluetooth)",
+            name=name,
+        )
         self._device: PhilipsHuePlug = PhilipsHuePlug(mac, name=name)
 
     @property
@@ -57,11 +65,13 @@ class PhilipsSmartPlug(SwitchEntity):
 
     async def async_turn_on(self, **kwargs: typing.Any) -> None:
         """Turn the entity on."""
-        self._device.turn_on()
+        await self._device.turn_on()
+        self._is_on = True
 
     async def async_turn_off(self, **kwargs: typing.Any) -> None:
         """Turn the entity off."""
-        self._device.turn_off()
+        await self._device.turn_off()
+        self._is_on = False
 
     async def async_toggle(self, **kwargs: typing.Any) -> None:
         """Toggle the entity."""
